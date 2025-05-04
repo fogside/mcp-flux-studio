@@ -305,30 +305,62 @@ class FluxAPI:
         return None
 
 # Function to fetch image and return format/data or save to file
-def handle_image_url(image_url: str, output_path: Optional[str] = None, fetch_base64: bool = False):
+def handle_image_url(image_url: str, output_path: Optional[str] = None, fetch_base64: bool = False, to_webp: bool = False):
     try:
         response = requests.get(image_url, stream=True)
         response.raise_for_status()
 
         content_type = response.headers.get('content-type', 'image/jpeg')
-        image_format = content_type.split('/')[-1] # e.g., jpeg, png
+        original_format = content_type.split('/')[-1].lower() # e.g., jpeg, png
+        # Ensure Pillow supports the format, default to jpeg if unknown/unsupported by Pillow for basic saving
+        # Pillow generally uses file extensions for saving, but we need format for base64.
+        save_format = original_format if original_format in ['png', 'gif'] else 'jpeg'
 
         image_bytes = response.content
 
+        # --- WebP Conversion Logic ---
+        final_format = save_format
+        final_image_bytes = image_bytes
+        
+        if to_webp and (output_path or fetch_base64):
+            try:
+                img = Image.open(BytesIO(image_bytes))
+                
+                # Use RGBA for PNG source to preserve transparency, RGB otherwise
+                if img.mode == 'P' or (save_format == 'png' and 'A' in img.mode): 
+                     img = img.convert('RGBA')
+                else:
+                    img = img.convert('RGB') # Convert to RGB for WEBP saving
+
+                output_buffer = BytesIO()
+                img.save(output_buffer, format='WEBP', quality=90) # Changed quality to 90
+                final_image_bytes = output_buffer.getvalue()
+                final_format = 'webp'
+            except Exception as convert_err:
+                print(f"Warning: Failed to convert image to WebP: {convert_err}. Serving original format.", file=sys.stderr)
+                # Fallback to original bytes and format if conversion fails
+                final_format = save_format
+                final_image_bytes = image_bytes
+        # --- End WebP Conversion ---
+
         if output_path:
-            # Ensure output_path is absolute (or handle relative paths appropriately)
+            # Adjust output path extension if converted to WebP
+            if final_format == 'webp':
+                base, _ = os.path.splitext(output_path)
+                output_path = base + '.webp'
+            
             abs_output_path = os.path.abspath(output_path)
             os.makedirs(os.path.dirname(abs_output_path), exist_ok=True)
             with open(abs_output_path, 'wb') as f:
-                f.write(image_bytes)
-            # Return JSON indicating save success
+                f.write(final_image_bytes) # Write final (potentially converted) bytes
             return json.dumps({"status": "saved", "path": abs_output_path})
+        
         elif fetch_base64:
-            # Return JSON with base64 data
-            base64_data = base64.b64encode(image_bytes).decode('utf-8')
-            return json.dumps({"status": "success", "format": image_format, "data": base64_data})
-        else:
-            # Return JSON with the URL
+            base64_data = base64.b64encode(final_image_bytes).decode('utf-8')
+            return json.dumps({"status": "success", "format": final_format, "data": base64_data})
+        
+        else: # Return URL
+            # URL doesn't change even if conversion *could* happen later
             return json.dumps({"status": "success", "url": image_url})
 
     except requests.exceptions.RequestException as e:
@@ -355,6 +387,7 @@ def main():
     output_group = base_image_parser.add_mutually_exclusive_group()
     output_group.add_argument('--output', '-o', help='Absolute path to save the generated image file.')
     output_group.add_argument('--fetch-base64', action='store_true', help='Fetch image from URL and return base64 data instead of URL.')
+    base_image_parser.add_argument('--to-webp', action='store_true', help='Convert the final image to WebP format (quality 85).')
 
 
     # --- Generate command ---
@@ -436,8 +469,8 @@ def main():
         # Add other command logic here if necessary
 
         if image_url:
-            # Pass result to handler function
-            result_json = handle_image_url(image_url, args.output, args.fetch_base64)
+            # Pass result to handler function, including the new to_webp flag
+            result_json = handle_image_url(image_url, args.output, args.fetch_base64, args.to_webp)
             print(result_json) # Print the JSON result to stdout
         else:
             print(f"Error: Command '{args.command}' did not produce an image URL.", file=sys.stderr)

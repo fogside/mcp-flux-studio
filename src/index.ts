@@ -201,6 +201,13 @@ class FluxServer {
         .describe(
           "Return image as URL or base64 data string (ignored if output_path is set)"
         ),
+      convertToWebp: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "Convert the final image to WebP format (quality 85) for web optimization"
+        ),
     });
     this.server.tool(
       "generate",
@@ -214,6 +221,9 @@ class FluxServer {
           cmdArgs.push("--output", args.output_path);
         } else if (args.return_format === "base64") {
           cmdArgs.push("--fetch-base64");
+        }
+        if (args.convertToWebp) {
+          cmdArgs.push("--to-webp");
         }
 
         cmdArgs.push("--prompt", args.prompt);
@@ -289,6 +299,13 @@ class FluxServer {
         .describe(
           "Return image as URL or base64 data string (ignored if output_path is set)"
         ),
+      convertToWebp: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "Convert the final image to WebP format (quality 85) for web optimization"
+        ),
     });
     this.server.tool(
       "img2img",
@@ -301,6 +318,9 @@ class FluxServer {
           cmdArgs.push("--output", args.output_path);
         } else if (args.return_format === "base64") {
           cmdArgs.push("--fetch-base64");
+        }
+        if (args.convertToWebp) {
+          cmdArgs.push("--to-webp");
         }
 
         cmdArgs.push("--image", args.image);
@@ -370,6 +390,13 @@ class FluxServer {
         .describe(
           "Return image as URL or base64 data string (ignored if output_path is set)"
         ),
+      convertToWebp: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "Convert the final image to WebP format (quality 85) for web optimization"
+        ),
     });
     this.server.tool(
       "inpaint",
@@ -382,6 +409,9 @@ class FluxServer {
           cmdArgs.push("--output", args.output_path);
         } else if (args.return_format === "base64") {
           cmdArgs.push("--fetch-base64");
+        }
+        if (args.convertToWebp) {
+          cmdArgs.push("--to-webp");
         }
 
         cmdArgs.push("--image", args.image);
@@ -445,6 +475,13 @@ class FluxServer {
         .describe(
           "Return image as URL or base64 data string (ignored if output_path is set)"
         ),
+      convertToWebp: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "Convert the final image to WebP format (quality 85) for web optimization"
+        ),
     });
     this.server.tool(
       "control",
@@ -457,6 +494,9 @@ class FluxServer {
           cmdArgs.push("--output", args.output_path);
         } else if (args.return_format === "base64") {
           cmdArgs.push("--fetch-base64");
+        }
+        if (args.convertToWebp) {
+          cmdArgs.push("--to-webp");
         }
 
         cmdArgs.push("--type", args.type);

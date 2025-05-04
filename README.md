@@ -137,7 +137,8 @@ Below are examples showing the expected JSON input format for each tool. Note th
 - Use `output_path` to save the image directly to an **absolute path** on the server machine. This returns a text confirmation.
 - Use `return_format: "base64"` (default) to get the image data embedded in the response, displayed as an image in Cursor.
 - Use `return_format: "url"` to get a URL for the generated image. This returns a text URL.
-- Note: `output_path` takes precedence over `return_format`.
+- Use `convertToWebp: true` to convert the output image to WebP format (quality 90) before saving or returning as base64. If saving, the file extension will automatically be changed to `.webp`.
+- Note: `output_path` takes precedence over `return_format`. `convertToWebp` applies to both `output_path` and `return_format: "base64"` scenarios.
 
 ### `generate`
 
@@ -151,7 +152,8 @@ Generate an image from a text prompt.
   "width": 1024, // Optional
   "height": 1024, // Optional
   "output_path": "/path/to/save/cat.jpg", // Optional: Absolute path to save file
-  "return_format": "base64" // Optional: "base64" or "url" (ignored if output_path is set)
+  "return_format": "base64", // Optional: "base64" or "url" (ignored if output_path is set)
+  "convertToWebp": false // Optional: Set to true to convert output to WebP (quality 90)
 }
 ```
 
@@ -169,7 +171,8 @@ Generate an image using another image as reference.
   "width": 1024, // Optional
   "height": 1024, // Optional
   "output_path": "/path/to/save/oil.jpg", // Optional: Absolute path to save file
-  "return_format": "base64" // Optional: "base64" or "url" (ignored if output_path is set)
+  "return_format": "base64", // Optional: "base64" or "url" (ignored if output_path is set)
+  "convertToWebp": false // Optional: Set to true to convert output to WebP (quality 90)
 }
 ```
 
@@ -184,7 +187,8 @@ Image inpainting.
   "mask_shape": "circle", // Optional: "circle" or "rectangle"
   "position": "center", // Optional: "center" or "ground"
   "output_path": "/path/to/save/inpainted.jpg", // Optional: Absolute path to save file
-  "return_format": "base64" // Optional: "base64" or "url" (ignored if output_path is set)
+  "return_format": "base64", // Optional: "base64" or "url" (ignored if output_path is set)
+  "convertToWebp": false // Optional: Set to true to convert output to WebP (quality 90)
 }
 ```
 
@@ -200,6 +204,7 @@ ControlNet-like image generation.
   "steps": 50, // Optional
   "guidance": 25, // Optional
   "output_path": "/path/to/save/controlled.jpg", // Optional: Absolute path to save file
-  "return_format": "base64" // Optional: "base64" or "url" (ignored if output_path is set)
+  "return_format": "base64", // Optional: "base64" or "url" (ignored if output_path is set)
+  "convertToWebp": false // Optional: Set to true to convert output to WebP (quality 90)
 }
 ```
