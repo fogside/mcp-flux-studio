@@ -110,12 +110,17 @@ Follow these steps to install and configure the server for use with Cursor:
 
 ## Basic Usage Examples
 
-Once configured, you can ask Cursor's AI to perform tasks like:
+Once configured, you can ask Cursor's AI assistant to perform tasks like:
 
 - `@flux-studio generate a photorealistic image of a cat wearing sunglasses`
 - `@flux-studio inpaint the selected area of the image to add a small boat, prompt: 'small red boat'` (Assuming you have an image open and selected part of it)
 
-_(Note: The exact invocation prefix like `@flux-studio` might depend on how you named the server in Cursor's MCP settings)_
+_(Note: The exact invocation prefix like `@flux-studio` depends on the `name` you set for the server in Cursor's MCP settings)._
+
+The AI assistant automatically discovers the available tools based on the server configuration. You can usually refer to the server by its name or describe the action you want it to perform. For more details on how Cursor interacts with MCP tools, see the official documentation:
+
+- **Cursor MCP Documentation:** [https://docs.cursor.com/context/model-context-protocol](https://docs.cursor.com/context/model-context-protocol)
+- **Using MCP Tools in Chat:** [https://docs.cursor.com/context/model-context-protocol#using-mcp-in-chat](https://docs.cursor.com/context/model-context-protocol#using-mcp-in-chat)
 
 ## License
 
