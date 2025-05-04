@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
+import sys
 import os
+
+# # --- Debug --- 
+# print(f"--- Python Executable: {sys.executable}", file=sys.stderr)
+# print(f"--- Python sys.path: {sys.path}", file=sys.stderr)
+# print(f"--- VIRTUAL_ENV env var: {os.getenv('VIRTUAL_ENV')}", file=sys.stderr)
+# print(f"--- Current Working Dir: {os.getcwd()}", file=sys.stderr)
+# # --- End Debug ---
+
 import json
 import argparse
 from typing import Optional
@@ -306,7 +315,6 @@ def main():
                                 help='Aspect ratio of the output image')
     generate_parser.add_argument('--width', '-w', type=int, help='Image width (ignored if aspect-ratio is set)')
     generate_parser.add_argument('--height', type=int, help='Image height (ignored if aspect-ratio is set)')
-    generate_parser.add_argument('--output', '-o', default='generated.jpg', help='Output filename')
     
     # Inpaint command
     inpaint_parser = subparsers.add_parser('inpaint', help='Inpaint an image using a mask')
@@ -316,7 +324,6 @@ def main():
                                help='Shape of the mask')
     inpaint_parser.add_argument('--position', '-pos', choices=['center', 'ground'], default='center',
                                help='Position of the mask')
-    inpaint_parser.add_argument('--output', '-o', default='inpainted.jpg', help='Output filename')
     
     # Control command
     control_parser = subparsers.add_parser('control', help='Generate an image using control')
@@ -326,7 +333,6 @@ def main():
     control_parser.add_argument('--prompt', '-p', required=True, help='Text prompt for generation')
     control_parser.add_argument('--steps', type=int, default=50, help='Number of inference steps')
     control_parser.add_argument('--guidance', type=float, help='Guidance scale')
-    control_parser.add_argument('--output', '-o', help='Output filename')
     
     # Img2img command
     img2img_parser = subparsers.add_parser('img2img', help='Generate an image using another image as reference')
@@ -337,17 +343,17 @@ def main():
     img2img_parser.add_argument('--strength', '-s', type=float, default=0.85, help='Generation strength')
     img2img_parser.add_argument('--width', '-w', type=int, help='Output width')
     img2img_parser.add_argument('--height', type=int, help='Output height')
-    img2img_parser.add_argument('--output', '-o', default='outputs/generated.jpg', help='Output filename')
     img2img_parser.add_argument('--name', '-n', required=True, help='Name for the generation')
     
     args = parser.parse_args()
+    image_url = None
     
     try:
         api = FluxAPI()
         
         if args.command == 'generate':
-            print(f"Generating image with {args.model}...")
-            print(f"Prompt: {args.prompt}")
+            print(f"Generating image with {args.model}...", file=sys.stderr)
+            print(f"Prompt: {args.prompt}", file=sys.stderr)
             
             image_url = api.generate_image(
                 prompt=args.prompt,
@@ -357,41 +363,26 @@ def main():
                 aspect_ratio=args.aspect_ratio
             )
             
-            if image_url and api.save_image_from_url(image_url, args.output):
-                print("✨ Generation complete!")
-            else:
-                print("Generation failed")
-                
         elif args.command == 'inpaint':
-            print(f"Inpainting image...")
-            print(f"Prompt: {args.prompt}")
+            print(f"Inpainting image...", file=sys.stderr)
+            print(f"Prompt: {args.prompt}", file=sys.stderr)
             
             image_url = api.inpaint(args.image, args.prompt, args.mask_shape, args.position)
-            if image_url and api.save_image_from_url(image_url, args.output):
-                print("✨ Inpainting complete!")
-            else:
-                print("Inpainting failed")
-                
+            
         elif args.command == 'control':
-            output = args.output or f"{args.type}_result.jpg"
             kwargs = {'steps': args.steps}
             if args.guidance is not None:
                 kwargs['guidance'] = args.guidance
             
-            result_url = api.control_generate(args.type, args.image, args.prompt, **kwargs)
-            if result_url and api.save_image_from_url(result_url, output):
-                print("✨ Control generation complete!")
-            else:
-                print("Control generation failed")
-                
+            print(f"Running control generation ({args.type})...", file=sys.stderr)
+            image_url = api.control_generate(args.type, args.image, args.prompt, **kwargs)
+            
         elif args.command == 'img2img':
-            os.makedirs(os.path.dirname(args.output), exist_ok=True)
+            print(f"Generating image-to-image with {args.model}...", file=sys.stderr)
+            print(f"Input image: {args.image}", file=sys.stderr)
+            print(f"Prompt: {args.prompt}", file=sys.stderr)
             
-            print(f"Generating image-to-image with {args.model}...")
-            print(f"Input image: {args.image}")
-            print(f"Prompt: {args.prompt}")
-            
-            result = api.img2img(
+            image_url = api.img2img(
                 image_path=args.image,
                 prompt=args.prompt,
                 model=args.model,
@@ -400,13 +391,34 @@ def main():
                 height=args.height
             )
             
-            if result and api.save_image_from_url(result, args.output):
-                print("✨ Generation complete!")
-            else:
-                print("Generation failed")
+        if image_url:
+            try:
+                print(f"Fetching image content from URL...", file=sys.stderr)
+                response = requests.get(image_url, timeout=30)
+                response.raise_for_status()
+                image_bytes = response.content
+                content_type = response.headers.get('content-type', 'image/jpeg').lower()
+                if 'png' in content_type:
+                    image_format = 'png'
+                else:
+                    image_format = 'jpeg'
+                
+                base64_data = base64.b64encode(image_bytes).decode('utf-8')
+                result_json = json.dumps({"format": image_format, "data": base64_data})
+                print(result_json)
+                print(f"✨ Generation complete! Returning base64 data.", file=sys.stderr)
+            except requests.exceptions.RequestException as e:
+                print(f"Error fetching image from URL {image_url}: {e}", file=sys.stderr)
+                return 1
+            except Exception as e:
+                 print(f"Error processing image for base64 conversion: {e}", file=sys.stderr)
+                 return 1
+        else:
+            print(f"{args.command.capitalize()} failed. No image URL received.", file=sys.stderr)
+            return 1
         
     except Exception as e:
-        print(f"Error: {str(e)}")
+        print(f"Error during {args.command}: {str(e)}", file=sys.stderr)
         return 1
     
     return 0

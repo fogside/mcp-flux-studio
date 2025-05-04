@@ -1,202 +1,187 @@
 # MCP Flux Studio
 
-[![smithery badge](https://smithery.ai/badge/@jmanhype/mcp-flux-studio)](https://smithery.ai/server/@jmanhype/mcp-flux-studio)
+A Model Context Protocol (MCP) server that brings Flux's advanced image generation capabilities to Cursor.
 
-A powerful Model Context Protocol (MCP) server that brings Flux's advanced image generation capabilities to your AI coding assistants. This server enables direct integration of Flux's image generation, manipulation, and control features into Cursor and Windsurf (Codeium) IDEs.
+## Features
 
-## Overview
+Provides MCP tools for Cursor's AI assistant to:
 
-MCP Flux Studio bridges the gap between AI coding assistants and Flux's powerful image generation API, allowing seamless integration of image generation capabilities directly into your development workflow.
+- Generate images from text prompts (`generate`)
+- Generate images based on existing images (`img2img`)
+- Inpaint parts of an image (`inpaint`)
+- Generate images using structural control like canny edges, depth maps, or poses (`control`)
 
-### Features
+## Installation and Usage (Cursor)
 
-- **Image Generation**
-  - Text-to-image generation with precise control
-  - Multiple model support (flux.1.1-pro, flux.1-pro, flux.1-dev, flux.1.1-ultra)
-  - Customizable aspect ratios and dimensions
+Follow these steps to install and configure the server for use with Cursor:
 
-- **Image Manipulation**
-  - Image-to-image transformation
-  - Inpainting with customizable masks
-  - Resolution upscaling and enhancement
+1.  **Prerequisites:**
 
-- **Advanced Controls**
-  - Edge-based generation (canny)
-  - Depth-aware generation
-  - Pose-guided generation
+    - [Node.js](https://nodejs.org/) (Version 18 or higher recommended)
+    - [Python](https://www.python.org/) (Version 3.10 or higher recommended)
+    - A Flux API key from [Black Forest Labs](https://flux.blackforestlabs.ai/)
+    - [Cursor](https://cursor.sh/)
 
-- **IDE Integration**
-  - Full support for Cursor (v0.45.7+)
-  - Compatible with Windsurf/Codeium Cascade (Wave 3+)
-  - Seamless tool invocation through AI assistants
+2.  **Clone the Repository:**
+    Open your terminal and run:
 
-## Quick Start
+    ```bash
+    git clone https://github.com/jmanhype/mcp-flux-studio.git # Replace with your repo URL if different
+    cd mcp-flux-studio
+    ```
 
-1. **Prerequisites**
-   - Node.js 18+
-   - Python 3.12+
-   - Flux API key
-   - Compatible IDE (Cursor or Windsurf)
+3.  **Set up Python Virtual Environment:**
+    It's highly recommended to use a Python virtual environment to manage dependencies.
 
-2. **Installation**
+    ```bash
+    # Navigate into the project directory if you aren't already there
+    cd /path/to/mcp-flux-studio
 
-### Installing via Smithery
+    # Create the virtual environment
+    python3 -m venv .venv
 
-To install Flux Studio for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@jmanhype/mcp-flux-studio):
+    # Activate the virtual environment
+    # On macOS/Linux:
+    source .venv/bin/activate
+    # On Windows:
+    # .venv\Scripts\activate
+    ```
 
-```bash
-npx -y @smithery/cli install @jmanhype/mcp-flux-studio --client claude
-```
+    You should see `(.venv)` preceding your terminal prompt.
 
-### Manual Installation
-   ```bash
-   git clone https://github.com/jmanhype/mcp-flux-studio.git
-   cd mcp-flux-studio
-   npm install
-   npm run build
-   ```
+4.  **Install Python Dependencies:**
+    While the virtual environment is active, install the required Python packages:
 
-3. **Basic Configuration**
-   ```env
-   BFL_API_KEY=your_flux_api_key
-   FLUX_PATH=/path/to/flux/installation
-   ```
+    ```bash
+    pip install -r src/cli/requirements.txt
+    ```
 
-For detailed setup instructions, including IDE-specific configuration and troubleshooting, see our [Installation Guide](docs/INSTALLATION.md).
+5.  **Install Node.js Dependencies:**
+    Install the necessary Node.js packages:
 
-## Documentation
+    ```bash
+    npm install
+    ```
 
-- [Installation Guide](docs/INSTALLATION.md) - Comprehensive setup instructions
-- [API Documentation](docs/API.md) - Detailed tool documentation
-- [Example Usage](examples/tool-examples.md) - Real-world usage examples
-- [Contributing Guidelines](docs/CONTRIBUTING.md) - How to contribute
+6.  **Build the Project:**
+    Compile the TypeScript code to JavaScript:
 
-## IDE Integration
+    ```bash
+    npm run build
+    ```
 
-### Cursor (v0.45.7+)
+7.  **Configure Cursor MCP:**
 
-MCP Flux Studio integrates seamlessly with Cursor's AI assistant:
+    - Open the Command Palette in Cursor (Cmd+Shift+P or Ctrl+Shift+P).
+    - Type "MCP" and select "MCP: Manage Custom Servers".
+    - Click "Add Server".
+    - Configure the server using the UI, or alternatively, you can manually edit your `mcp.json` file (usually located at `~/.cursor/mcp.json`). Here's an example snippet to add to the `servers` array in that file:
 
-1. **Configuration**
-   - Configure via Settings > Features > MCP
-   - Supports both stdio and SSE connections
-   - Environment variables can be set via wrapper scripts
+    ```json
+    {
+      "name": "Flux Studio", // Or your preferred name
+      "command": "node",
+      "args": [
+        "/Users/YOUR_USERNAME/path/to/mcp-flux-studio/build/index.js" // <-- Replace with absolute path
+      ],
+      "enabled": true,
+      "workingDirectory": "/Users/YOUR_USERNAME/path/to/mcp-flux-studio", // <-- Replace with absolute path
+      "environment": {
+        "BFL_API_KEY": "YOUR_API_KEY_HERE", // <-- Replace or ensure set elsewhere
+        "FLUX_PATH": "/Users/YOUR_USERNAME/path/to/mcp-flux-studio/src/cli", // <-- Replace with absolute path
+        "VIRTUAL_ENV": "/Users/YOUR_USERNAME/path/to/mcp-flux-studio/.venv" // <-- Add this line, replace with absolute path to the .venv folder
+      }
+    }
+    ```
 
-2. **Usage**
-   - Tools automatically available to Cursor's AI assistant
-   - Tool invocations require user approval
-   - Real-time feedback on generation progress
+    - **Important Notes on Configuration:**
+      - Replace `/Users/YOUR_USERNAME/path/to/mcp-flux-studio` with the actual **absolute path** to where you cloned the repository on your machine.
+      - Replace `YOUR_API_KEY_HERE` with your actual Black Forest Labs API key. **Never commit your API key directly to Git.**
+      - Ensure the `workingDirectory` points to the root of the cloned project.
+      - Ensure `FLUX_PATH` points to the `src/cli` directory within the project.
+      - Setting `VIRTUAL_ENV` to the absolute path of the `.venv` directory helps the server find the correct Python executable with the necessary dependencies.
+    - Save the server configuration (either in the UI or by saving the `mcp.json` file).
 
-### Windsurf/Codeium (Wave 3+)
+8.  **Activate and Use:**
+    - Ensure the server switch is enabled in the "MCP: Manage Custom Servers" menu.
+    - You should now be able to ask Cursor's AI assistant to use the Flux tools (e.g., "generate an image of a futuristic cityscape using flux studio"). The tool names will likely start with `mcp_flux-studio_`.
 
-Integration with Windsurf's Cascade AI:
+## Basic Usage Examples
 
-1. **Configuration**
-   - Edit `~/.codeium/windsurf/mcp_config.json`
-   - Supports process-based tool execution
-   - Environment variables configured in JSON
+Once configured, you can ask Cursor's AI to perform tasks like:
 
-2. **Usage**
-   - Access tools through Cascade's MCP toolbar
-   - Automatic tool discovery and loading
-   - Integrated with Cascade's AI capabilities
+- `@flux-studio generate a photorealistic image of a cat wearing sunglasses`
+- `@flux-studio inpaint the selected area of the image to add a small boat, prompt: 'small red boat'` (Assuming you have an image open and selected part of it)
 
-For detailed IDE-specific setup instructions, see the [Installation Guide](docs/INSTALLATION.md).
-
-## Usage
-
-The server provides the following tools:
-
-### generate
-Generate an image from a text prompt.
-```json
-{
-  "prompt": "A photorealistic cat",
-  "model": "flux.1.1-pro",
-  "aspect_ratio": "1:1",
-  "output": "generated.jpg"
-}
-```
-
-### img2img
-Generate an image using another image as reference.
-```json
-{
-  "image": "input.jpg",
-  "prompt": "Convert to oil painting",
-  "model": "flux.1.1-pro",
-  "strength": 0.85,
-  "output": "output.jpg",
-  "name": "oil_painting"
-}
-```
-
-### inpaint
-Inpaint an image using a mask.
-```json
-{
-  "image": "input.jpg",
-  "prompt": "Add flowers",
-  "mask_shape": "circle",
-  "position": "center",
-  "output": "inpainted.jpg"
-}
-```
-
-### control
-Generate an image using structural control.
-```json
-{
-  "type": "canny",
-  "image": "control.jpg",
-  "prompt": "A realistic photo",
-  "output": "controlled.jpg"
-}
-```
-
-## Development
-
-### Project Structure
-
-```
-flux-mcp-server/
-├── src/
-│   ├── index.ts          # Main server implementation
-│   └── types.ts          # TypeScript type definitions
-├── tests/
-│   └── server.test.ts    # Server tests
-├── docs/
-│   ├── API.md           # API documentation
-│   └── CONTRIBUTING.md  # Contribution guidelines
-├── examples/
-│   ├── generate.json    # Example tool usage
-│   └── config.json      # Example configuration
-├── package.json
-├── tsconfig.json
-└── README.md
-```
-
-### Running Tests
-
-```bash
-npm test
-```
-
-### Building
-
-```bash
-npm run build
-```
-
-## Contributing
-
-Please read [CONTRIBUTING.md](docs/CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+_(Note: The exact invocation prefix like `@flux-studio` might depend on how you named the server in Cursor's MCP settings)_
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License
 
-## Acknowledgments
+---
 
-- [Model Context Protocol](https://github.com/modelcontextprotocol/mcp) - The protocol specification
-- [Flux API](https://flux.ai) - The underlying image generation API
+## Detailed Tool Usage Examples
+
+Below are examples showing the expected JSON input format for each tool. Note that when using the tool via Cursor chat, you typically provide the information in natural language, and Cursor translates it into this format.
+
+### `generate`
+
+Generate an image from a text prompt.
+
+```json
+{
+  "prompt": "A photorealistic cat",
+  "model": "flux.1.1-pro", // Optional, defaults to flux.1.1-pro
+  "aspect_ratio": "1:1", // Optional
+  "width": 1024, // Optional
+  "height": 1024, // Optional
+  "output": "generated.jpg" // Optional, defaults to generated.jpg
+}
+```
+
+### `img2img`
+
+Generate an image using another image as reference.
+
+```json
+{
+  "image": "input.jpg", // Required: Path to input image
+  "prompt": "Convert to oil painting", // Required
+  "name": "oil_painting", // Required: A name for the task
+  "model": "flux.1.1-pro", // Optional, defaults to flux.1.1-pro
+  "strength": 0.85, // Optional, defaults to 0.85
+  "width": 1024, // Optional
+  "height": 1024, // Optional
+  "output": "output.jpg" // Optional, defaults to outputs/generated.jpg
+}
+```
+
+### `inpaint`
+
+Inpaint an image using a mask.
+
+```json
+{
+  "image": "input.jpg", // Required: Path to input image
+  "prompt": "Add flowers", // Required
+  "mask_shape": "circle", // Optional, defaults to 'circle'. Can be 'rectangle'.
+  "position": "center", // Optional, defaults to 'center'. Can be 'ground'.
+  "output": "inpainted.jpg" // Optional, defaults to inpainted.jpg
+}
+```
+
+### `control`
+
+Generate an image using structural control.
+
+```json
+{
+  "type": "canny", // Required: 'canny', 'depth', or 'pose'
+  "image": "control.jpg", // Required: Path to control image
+  "prompt": "A realistic photo", // Required
+  "steps": 50, // Optional, defaults to 50
+  "guidance": 30, // Optional, guidance defaults depend on type
+  "output": "controlled.jpg" // Optional
+}
+```
