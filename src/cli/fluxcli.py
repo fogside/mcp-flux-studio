@@ -62,10 +62,10 @@ class FluxAPI:
         max_attempts = 30
         attempt = 0
         
-        print("Processing image...")
+        print("Processing image...", file=sys.stderr)
         while attempt < max_attempts:
             if not silent:
-                print(f"Processing image... (attempt {attempt + 1}/{max_attempts})")
+                print(f"Processing image... (attempt {attempt + 1}/{max_attempts})", file=sys.stderr)
             
             response = requests.get(f"{self.base_url}/v1/get_result", params={'id': task_id})
             result = response.json()
@@ -73,13 +73,13 @@ class FluxAPI:
             if result['status'] == 'Ready':
                 return result
             elif result['status'] == 'failed':
-                print(f"Task failed: {result.get('error', 'Unknown error')}")
+                print(f"Task failed: {result.get('error', 'Unknown error')}", file=sys.stderr)
                 return None
             
             attempt += 1
             time.sleep(2)
         
-        print("Timeout waiting for result")
+        print("Timeout waiting for result", file=sys.stderr)
         return None
 
     def generate_image(self, prompt: str, model: str = "flux.1.1-pro", width: int = None, height: int = None, aspect_ratio: str = None) -> Optional[str]:
@@ -125,7 +125,7 @@ class FluxAPI:
         
         task_id = response.json().get('id')
         if not task_id:
-            print("Failed to start generation task")
+            print("Failed to start generation task", file=sys.stderr)
             return None
             
         result = self.get_task_result(task_id)
@@ -194,6 +194,7 @@ class FluxAPI:
         
         task_id = response.json().get('id')
         if not task_id:
+            print("Failed to start inpaint task", file=sys.stderr)
             return None
             
         result = self.get_task_result(task_id)
@@ -237,6 +238,7 @@ class FluxAPI:
         
         task_id = response.json().get('id')
         if not task_id:
+            print(f"Failed to start control ({control_type}) task", file=sys.stderr)
             return None
             
         result = self.get_task_result(task_id)
@@ -294,7 +296,7 @@ class FluxAPI:
         
         task_id = response.json().get('id')
         if not task_id:
-            print("Failed to start image-to-image task")
+            print("Failed to start image-to-image task", file=sys.stderr)
             return None
             
         result = self.get_task_result(task_id)
@@ -302,126 +304,149 @@ class FluxAPI:
             return result['result']['sample']
         return None
 
+# Function to fetch image and return format/data or save to file
+def handle_image_url(image_url: str, output_path: Optional[str] = None, fetch_base64: bool = False):
+    try:
+        response = requests.get(image_url, stream=True)
+        response.raise_for_status()
+
+        content_type = response.headers.get('content-type', 'image/jpeg')
+        image_format = content_type.split('/')[-1] # e.g., jpeg, png
+
+        image_bytes = response.content
+
+        if output_path:
+            # Ensure output_path is absolute (or handle relative paths appropriately)
+            abs_output_path = os.path.abspath(output_path)
+            os.makedirs(os.path.dirname(abs_output_path), exist_ok=True)
+            with open(abs_output_path, 'wb') as f:
+                f.write(image_bytes)
+            # Return JSON indicating save success
+            return json.dumps({"status": "saved", "path": abs_output_path})
+        elif fetch_base64:
+            # Return JSON with base64 data
+            base64_data = base64.b64encode(image_bytes).decode('utf-8')
+            return json.dumps({"status": "success", "format": image_format, "data": base64_data})
+        else:
+            # Return JSON with the URL
+            return json.dumps({"status": "success", "url": image_url})
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching image from URL {image_url}: {e}", file=sys.stderr)
+        sys.exit(1)
+    except IOError as e:
+        print(f"Error saving image to {output_path}: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}", file=sys.stderr)
+        sys.exit(1)
+
 def main():
+    # Main parser
     parser = argparse.ArgumentParser(description="FLUX CLI - Image Generation Tool")
-    subparsers = parser.add_subparsers(dest='command', help='Commands')
     
-    # Generate command
-    generate_parser = subparsers.add_parser('generate', help='Generate an image from a text prompt')
+    # Arguments applicable before subcommands (if any were needed)
+    # parser.add_argument('--global-option', help='An option for all commands')
+
+    subparsers = parser.add_subparsers(dest='command', help='Commands', required=True)
+
+    # --- Base arguments for commands that produce an image ---
+    base_image_parser = argparse.ArgumentParser(add_help=False)
+    output_group = base_image_parser.add_mutually_exclusive_group()
+    output_group.add_argument('--output', '-o', help='Absolute path to save the generated image file.')
+    output_group.add_argument('--fetch-base64', action='store_true', help='Fetch image from URL and return base64 data instead of URL.')
+
+
+    # --- Generate command ---
+    generate_parser = subparsers.add_parser('generate', help='Generate an image from a text prompt', parents=[base_image_parser])
     generate_parser.add_argument('--prompt', '-p', required=True, help='Text prompt for image generation')
-    generate_parser.add_argument('--model', '-m', choices=['flux.1.1-pro', 'flux.1-pro', 'flux.1-dev', 'flux.1.1-ultra'],
-                                default='flux.1.1-pro', help='Model to use for generation')
-    generate_parser.add_argument('--aspect-ratio', '-ar', choices=['1:1', '4:3', '3:4', '16:9', '9:16'],
-                                help='Aspect ratio of the output image')
+    generate_parser.add_argument('--model', '-m', choices=['flux.1.1-pro', 'flux.1-pro', 'flux.1-dev', 'flux.1.1-ultra'], default='flux.1.1-pro', help='Model to use for generation')
+    generate_parser.add_argument('--aspect-ratio', '-ar', choices=['1:1', '4:3', '3:4', '16:9', '9:16'], help='Aspect ratio of the output image')
     generate_parser.add_argument('--width', '-w', type=int, help='Image width (ignored if aspect-ratio is set)')
     generate_parser.add_argument('--height', type=int, help='Image height (ignored if aspect-ratio is set)')
-    
-    # Inpaint command
-    inpaint_parser = subparsers.add_parser('inpaint', help='Inpaint an image using a mask')
-    inpaint_parser.add_argument('--image', '-i', required=True, help='Input image for inpainting')
+
+
+    # --- Img2Img command ---
+    img2img_parser = subparsers.add_parser('img2img', help='Generate an image using another image as reference', parents=[base_image_parser])
+    img2img_parser.add_argument('--image', required=True, help='Input image path')
+    img2img_parser.add_argument('--prompt', '-p', required=True, help='Text prompt for generation')
+    img2img_parser.add_argument('--name', required=True, help='Name for the generation')
+    img2img_parser.add_argument('--model', '-m', choices=['flux.1.1-pro', 'flux.1-pro', 'flux.1-dev', 'flux.1.1-ultra'], default='flux.1.1-pro', help='Model to use for generation')
+    img2img_parser.add_argument('--strength', type=float, default=0.85, help='Generation strength')
+    img2img_parser.add_argument('--width', '-w', type=int, help='Output image width')
+    img2img_parser.add_argument('--height', type=int, help='Output image height')
+
+
+    # --- Inpaint command ---
+    inpaint_parser = subparsers.add_parser('inpaint', help='Image inpainting', parents=[base_image_parser])
+    inpaint_parser.add_argument('--image', required=True, help='Input image path')
     inpaint_parser.add_argument('--prompt', '-p', required=True, help='Text prompt for inpainting')
-    inpaint_parser.add_argument('--mask-shape', '-m', choices=['circle', 'rectangle'], default='circle',
-                               help='Shape of the mask')
-    inpaint_parser.add_argument('--position', '-pos', choices=['center', 'ground'], default='center',
-                               help='Position of the mask')
-    
-    # Control command
-    control_parser = subparsers.add_parser('control', help='Generate an image using control')
-    control_parser.add_argument('--type', '-t', required=True, choices=['canny', 'depth', 'pose'],
-                               help='Type of control to use')
-    control_parser.add_argument('--image', '-i', required=True, help='Input control image')
+    inpaint_parser.add_argument('--mask-shape', choices=['circle', 'rectangle'], default='circle', help='Shape of the mask')
+    inpaint_parser.add_argument('--position', choices=['center', 'ground'], default='center', help='Position of the mask')
+
+
+    # --- Control command ---
+    control_parser = subparsers.add_parser('control', help='ControlNet-like image generation', parents=[base_image_parser])
+    control_parser.add_argument('--type', required=True, choices=['canny', 'depth', 'pose'], help='Type of control to use')
+    control_parser.add_argument('--image', required=True, help='Input control image path')
     control_parser.add_argument('--prompt', '-p', required=True, help='Text prompt for generation')
     control_parser.add_argument('--steps', type=int, default=50, help='Number of inference steps')
     control_parser.add_argument('--guidance', type=float, help='Guidance scale')
-    
-    # Img2img command
-    img2img_parser = subparsers.add_parser('img2img', help='Generate an image using another image as reference')
-    img2img_parser.add_argument('--image', '-i', required=True, help='Input image')
-    img2img_parser.add_argument('--prompt', '-p', required=True, help='Text prompt for generation')
-    img2img_parser.add_argument('--model', '-m', choices=['flux.1.1-pro', 'flux.1-pro', 'flux.1-dev', 'flux.1.1-ultra'],
-                               default='flux.1.1-pro', help='Model to use')
-    img2img_parser.add_argument('--strength', '-s', type=float, default=0.85, help='Generation strength')
-    img2img_parser.add_argument('--width', '-w', type=int, help='Output width')
-    img2img_parser.add_argument('--height', type=int, help='Output height')
-    img2img_parser.add_argument('--name', '-n', required=True, help='Name for the generation')
-    
+
+
     args = parser.parse_args()
-    image_url = None
-    
+    image_url = None # Variable to store the URL from the API call
+
     try:
-        api = FluxAPI()
-        
+        api = FluxAPI() # Assumes BFL_API_KEY is handled within FluxAPI or env vars
+
         if args.command == 'generate':
-            print(f"Generating image with {args.model}...", file=sys.stderr)
-            print(f"Prompt: {args.prompt}", file=sys.stderr)
-            
             image_url = api.generate_image(
                 prompt=args.prompt,
                 model=args.model,
-                width=args.width,
-                height=args.height,
-                aspect_ratio=args.aspect_ratio
-            )
-            
-        elif args.command == 'inpaint':
-            print(f"Inpainting image...", file=sys.stderr)
-            print(f"Prompt: {args.prompt}", file=sys.stderr)
-            
-            image_url = api.inpaint(args.image, args.prompt, args.mask_shape, args.position)
-            
-        elif args.command == 'control':
-            kwargs = {'steps': args.steps}
-            if args.guidance is not None:
-                kwargs['guidance'] = args.guidance
-            
-            print(f"Running control generation ({args.type})...", file=sys.stderr)
-            image_url = api.control_generate(args.type, args.image, args.prompt, **kwargs)
-            
-        elif args.command == 'img2img':
-            print(f"Generating image-to-image with {args.model}...", file=sys.stderr)
-            print(f"Input image: {args.image}", file=sys.stderr)
-            print(f"Prompt: {args.prompt}", file=sys.stderr)
-            
-            image_url = api.img2img(
-                image_path=args.image,
-                prompt=args.prompt,
-                model=args.model,
-                strength=args.strength,
+                aspect_ratio=args.aspect_ratio,
                 width=args.width,
                 height=args.height
             )
-            
-        if image_url:
-            try:
-                print(f"Fetching image content from URL...", file=sys.stderr)
-                response = requests.get(image_url, timeout=30)
-                response.raise_for_status()
-                image_bytes = response.content
-                content_type = response.headers.get('content-type', 'image/jpeg').lower()
-                if 'png' in content_type:
-                    image_format = 'png'
-                else:
-                    image_format = 'jpeg'
-                
-                base64_data = base64.b64encode(image_bytes).decode('utf-8')
-                result_json = json.dumps({"format": image_format, "data": base64_data})
-                print(result_json)
-                print(f"✨ Generation complete! Returning base64 data.", file=sys.stderr)
-            except requests.exceptions.RequestException as e:
-                print(f"Error fetching image from URL {image_url}: {e}", file=sys.stderr)
-                return 1
-            except Exception as e:
-                 print(f"Error processing image for base64 conversion: {e}", file=sys.stderr)
-                 return 1
-        else:
-            print(f"{args.command.capitalize()} failed. No image URL received.", file=sys.stderr)
-            return 1
-        
-    except Exception as e:
-        print(f"Error during {args.command}: {str(e)}", file=sys.stderr)
-        return 1
-    
-    return 0
+        elif args.command == 'img2img':
+             image_url = api.img2img(
+                 image_path=args.image,
+                 prompt=args.prompt,
+                 name=args.name,
+                 model=args.model,
+                 strength=args.strength,
+                 width=args.width,
+                 height=args.height
+             )
+        elif args.command == 'inpaint':
+             image_url = api.inpaint(
+                 image_path=args.image,
+                 prompt=args.prompt,
+                 mask_shape=args.mask_shape,
+                 position=args.position
+             )
+        elif args.command == 'control':
+             image_url = api.control_generate(
+                 type=args.type,
+                 image_path=args.image,
+                 prompt=args.prompt,
+                 steps=args.steps,
+                 guidance=args.guidance
+             )
+        # Add other command logic here if necessary
 
-if __name__ == '__main__':
-    exit(main())
+        if image_url:
+            # Pass result to handler function
+            result_json = handle_image_url(image_url, args.output, args.fetch_base64)
+            print(result_json) # Print the JSON result to stdout
+        else:
+            print(f"Error: Command '{args.command}' did not produce an image URL.", file=sys.stderr)
+            sys.exit(1)
+
+    except Exception as e:
+        print(f"Error during API call or processing: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

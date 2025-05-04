@@ -2,6 +2,8 @@
 
 A Model Context Protocol (MCP) server that brings Flux's advanced image generation capabilities to Cursor.
 
+_Note: This is a fork of the original [jmanhype/mcp-flux-studio](https://github.com/jmanhype/mcp-flux-studio) repository, adapted to resolve compatibility issues and ensure smooth operation within the Cursor environment._
+
 ## Features
 
 Provides MCP tools for Cursor's AI assistant to:
@@ -26,7 +28,7 @@ Follow these steps to install and configure the server for use with Cursor:
     Open your terminal and run:
 
     ```bash
-    git clone https://github.com/jmanhype/mcp-flux-studio.git # Replace with your repo URL if different
+    git clone https://github.com/fogside/mcp-flux-studio.git # Use this updated URL
     cd mcp-flux-studio
     ```
 
@@ -125,6 +127,13 @@ MIT License
 
 Below are examples showing the expected JSON input format for each tool. Note that when using the tool via Cursor chat, you typically provide the information in natural language, and Cursor translates it into this format.
 
+**Output Options:**
+
+- Use `output_path` to save the image directly to an **absolute path** on the server machine. This returns a text confirmation.
+- Use `return_format: "base64"` (default) to get the image data embedded in the response, displayed as an image in Cursor.
+- Use `return_format: "url"` to get a URL for the generated image. This returns a text URL.
+- Note: `output_path` takes precedence over `return_format`.
+
 ### `generate`
 
 Generate an image from a text prompt.
@@ -136,7 +145,8 @@ Generate an image from a text prompt.
   "aspect_ratio": "1:1", // Optional
   "width": 1024, // Optional
   "height": 1024, // Optional
-  "output": "generated.jpg" // Optional, defaults to generated.jpg
+  "output_path": "/path/to/save/cat.jpg", // Optional: Absolute path to save file
+  "return_format": "base64" // Optional: "base64" or "url" (ignored if output_path is set)
 }
 ```
 
@@ -148,40 +158,43 @@ Generate an image using another image as reference.
 {
   "image": "input.jpg", // Required: Path to input image
   "prompt": "Convert to oil painting", // Required
-  "name": "oil_painting", // Required: A name for the task
-  "model": "flux.1.1-pro", // Optional, defaults to flux.1.1-pro
-  "strength": 0.85, // Optional, defaults to 0.85
+  "name": "oil_painting", // Required: A name for the generation (used by API)
+  "model": "flux.1.1-pro", // Optional
+  "strength": 0.85, // Optional
   "width": 1024, // Optional
   "height": 1024, // Optional
-  "output": "output.jpg" // Optional, defaults to outputs/generated.jpg
+  "output_path": "/path/to/save/oil.jpg", // Optional: Absolute path to save file
+  "return_format": "base64" // Optional: "base64" or "url" (ignored if output_path is set)
 }
 ```
 
 ### `inpaint`
 
-Inpaint an image using a mask.
+Image inpainting.
 
 ```json
 {
   "image": "input.jpg", // Required: Path to input image
-  "prompt": "Add flowers", // Required
-  "mask_shape": "circle", // Optional, defaults to 'circle'. Can be 'rectangle'.
-  "position": "center", // Optional, defaults to 'center'. Can be 'ground'.
-  "output": "inpainted.jpg" // Optional, defaults to inpainted.jpg
+  "prompt": "Add a hat on the person", // Required
+  "mask_shape": "circle", // Optional: "circle" or "rectangle"
+  "position": "center", // Optional: "center" or "ground"
+  "output_path": "/path/to/save/inpainted.jpg", // Optional: Absolute path to save file
+  "return_format": "base64" // Optional: "base64" or "url" (ignored if output_path is set)
 }
 ```
 
 ### `control`
 
-Generate an image using structural control.
+ControlNet-like image generation.
 
 ```json
 {
-  "type": "canny", // Required: 'canny', 'depth', or 'pose'
-  "image": "control.jpg", // Required: Path to control image
-  "prompt": "A realistic photo", // Required
-  "steps": 50, // Optional, defaults to 50
-  "guidance": 30, // Optional, guidance defaults depend on type
-  "output": "controlled.jpg" // Optional
+  "type": "canny", // Required: "canny", "depth", or "pose"
+  "image": "control_image.jpg", // Required: Path to control image
+  "prompt": "Generate character based on pose", // Required
+  "steps": 50, // Optional
+  "guidance": 25, // Optional
+  "output_path": "/path/to/save/controlled.jpg", // Optional: Absolute path to save file
+  "return_format": "base64" // Optional: "base64" or "url" (ignored if output_path is set)
 }
 ```

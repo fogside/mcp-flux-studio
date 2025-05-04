@@ -12,6 +12,25 @@ import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
 
+// Define interfaces for the expected JSON structures from Python
+interface PythonSavedResult {
+  status: "saved";
+  path: string;
+}
+
+interface PythonBase64Result {
+  status: "success";
+  format: string;
+  data: string;
+}
+
+interface PythonUrlResult {
+  status: "success";
+  url: string;
+}
+
+type PythonResult = PythonSavedResult | PythonBase64Result | PythonUrlResult;
+
 class FluxServer {
   private server: McpServer;
   private fluxPath: string;
@@ -67,19 +86,53 @@ class FluxServer {
 
       childProcess.on("close", (code) => {
         if (code === 0) {
-          // Try parsing the output as JSON
+          // Try parsing the output as JSON (should always be JSON on success now)
           try {
-            const parsedOutput = JSON.parse(output);
-            if (parsedOutput.data && parsedOutput.format) {
-              resolve(parsedOutput); // Resolve with the parsed object
+            const parsedOutput = JSON.parse(output) as PythonResult;
+
+            // Check the structure based on the status
+            if (parsedOutput.status === "saved" && parsedOutput.path) {
+              resolve(parsedOutput); // Resolve with the saved object
+            } else if (parsedOutput.status === "success") {
+              if (
+                (parsedOutput as PythonBase64Result).data &&
+                (parsedOutput as PythonBase64Result).format
+              ) {
+                // Resolve with just the format and data for base64 case
+                resolve({
+                  format: (parsedOutput as PythonBase64Result).format,
+                  data: (parsedOutput as PythonBase64Result).data,
+                });
+              } else if ((parsedOutput as PythonUrlResult).url) {
+                resolve((parsedOutput as PythonUrlResult).url); // Resolve with the URL string for url case
+              } else {
+                // Success status but unexpected structure
+                console.warn(
+                  "Python script returned success status but unexpected JSON structure.",
+                  output
+                );
+                reject(
+                  new Error(
+                    `Python script returned unexpected success JSON: ${output.substring(
+                      0,
+                      100
+                    )}`
+                  )
+                );
+              }
             } else {
-              // If JSON doesn't have expected structure, reject
+              // JSON parsed but status is not 'saved' or 'success' or structure is wrong
               console.warn(
-                "Python script output was JSON but lacked format/data fields. Output:",
+                "Python script returned JSON with unexpected status or structure.",
                 output
-              ); // Fixed console call
+              );
               reject(
-                new Error(`Python script returned unexpected JSON: ${output}`)
+                new Error(
+                  `Python script returned unexpected JSON: ${output.substring(
+                    0,
+                    100
+                  )}`
+                )
               );
             }
           } catch (e) {
@@ -87,9 +140,14 @@ class FluxServer {
             console.error(
               "Python script output was not valid JSON. Output:",
               output
-            ); // Fixed console call
+            );
             reject(
-              new Error(`Python script returned non-JSON output: ${output}`)
+              new Error(
+                `Python script returned non-JSON output: ${output.substring(
+                  0,
+                  100
+                )}`
+              )
             );
           }
         } else {
@@ -103,6 +161,16 @@ class FluxServer {
   }
 
   setupToolHandlers() {
+    // Common return format parameter (no longer needed here, added per tool)
+    // const returnFormatParam = {
+    //   return_format: z
+    //     .enum(["url", "base64"])
+    //     .optional()
+    //     .default("base64")
+    //     .describe("Return image as URL or base64 data string"),
+    // };
+
+    // --- generate ---
     const generateSchema = z.object({
       prompt: z.string().describe("Text prompt for image generation"),
       model: z
@@ -121,12 +189,33 @@ class FluxServer {
         .number()
         .optional()
         .describe("Image height (ignored if aspect-ratio is set)"),
+      // Add output_path and specific return_format
+      output_path: z
+        .string()
+        .optional()
+        .describe("Absolute path to save the generated image file"),
+      return_format: z
+        .enum(["url", "base64"])
+        .optional()
+        .default("base64")
+        .describe(
+          "Return image as URL or base64 data string (ignored if output_path is set)"
+        ),
     });
     this.server.tool(
       "generate",
       generateSchema.shape,
       async (args: z.infer<typeof generateSchema>) => {
-        const cmdArgs = ["generate"];
+        const cmdArgs = [];
+        cmdArgs.push("generate"); // Add command *first*
+
+        // Add flags/options *after* command
+        if (args.output_path) {
+          cmdArgs.push("--output", args.output_path);
+        } else if (args.return_format === "base64") {
+          cmdArgs.push("--fetch-base64");
+        }
+
         cmdArgs.push("--prompt", args.prompt);
         if (args.model) cmdArgs.push("--model", args.model);
         if (args.aspect_ratio)
@@ -134,23 +223,49 @@ class FluxServer {
         if (args.width) cmdArgs.push("--width", args.width.toString());
         if (args.height) cmdArgs.push("--height", args.height.toString());
 
-        const result = (await this.runPythonCommand(cmdArgs)) as {
-          format: string;
-          data: string;
-        };
+        const result = await this.runPythonCommand(cmdArgs);
 
-        return {
-          content: [
-            {
-              type: "image",
-              mimeType: `image/${result.format}`,
-              data: result.data,
-            },
-          ], // Use image type
-        };
+        // Check result type
+        if (
+          typeof result === "object" &&
+          (result as { status: string }).status === "saved"
+        ) {
+          // Saved file case
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Image saved to: ${(result as PythonSavedResult).path}`,
+              },
+            ],
+          };
+        } else if (
+          typeof result === "object" &&
+          (result as { format: string }).format
+        ) {
+          // Base64 case
+          const base64Result = result as { format: string; data: string };
+          return {
+            content: [
+              {
+                type: "image",
+                mimeType: `image/${base64Result.format}`,
+                data: base64Result.data,
+              },
+            ],
+          };
+        } else if (typeof result === "string") {
+          // URL case
+          return {
+            content: [{ type: "text", text: `Image URL: ${result}` }],
+          };
+        } else {
+          throw new Error("Unexpected result type from runPythonCommand");
+        }
       }
     );
 
+    // --- img2img ---
     const img2imgSchema = z.object({
       image: z.string().describe("Input image path"),
       prompt: z.string().describe("Text prompt for generation"),
@@ -162,12 +277,32 @@ class FluxServer {
       strength: z.number().default(0.85).describe("Generation strength"),
       width: z.number().optional().describe("Output image width"),
       height: z.number().optional().describe("Output image height"),
+      // Add output_path and specific return_format
+      output_path: z
+        .string()
+        .optional()
+        .describe("Absolute path to save the generated image file"),
+      return_format: z
+        .enum(["url", "base64"])
+        .optional()
+        .default("base64")
+        .describe(
+          "Return image as URL or base64 data string (ignored if output_path is set)"
+        ),
     });
     this.server.tool(
       "img2img",
       img2imgSchema.shape,
       async (args: z.infer<typeof img2imgSchema>) => {
-        const cmdArgs = ["img2img"];
+        const cmdArgs = [];
+        cmdArgs.push("img2img"); // Add command *first*
+
+        if (args.output_path) {
+          cmdArgs.push("--output", args.output_path);
+        } else if (args.return_format === "base64") {
+          cmdArgs.push("--fetch-base64");
+        }
+
         cmdArgs.push("--image", args.image);
         cmdArgs.push("--prompt", args.prompt);
         cmdArgs.push("--name", args.name);
@@ -176,22 +311,42 @@ class FluxServer {
         if (args.width) cmdArgs.push("--width", args.width.toString());
         if (args.height) cmdArgs.push("--height", args.height.toString());
 
-        const result = (await this.runPythonCommand(cmdArgs)) as {
-          format: string;
-          data: string;
-        };
-        return {
-          content: [
-            {
-              type: "image",
-              mimeType: `image/${result.format}`,
-              data: result.data,
-            },
-          ], // Use image type
-        };
+        const result = await this.runPythonCommand(cmdArgs);
+        if (
+          typeof result === "object" &&
+          (result as { status: string }).status === "saved"
+        ) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Image saved to: ${(result as PythonSavedResult).path}`,
+              },
+            ],
+          };
+        } else if (
+          typeof result === "object" &&
+          (result as { format: string }).format
+        ) {
+          const base64Result = result as { format: string; data: string };
+          return {
+            content: [
+              {
+                type: "image",
+                mimeType: `image/${base64Result.format}`,
+                data: base64Result.data,
+              },
+            ],
+          };
+        } else if (typeof result === "string") {
+          return { content: [{ type: "text", text: `Image URL: ${result}` }] };
+        } else {
+          throw new Error("Unexpected result type from runPythonCommand");
+        }
       }
     );
 
+    // --- inpaint ---
     const inpaintSchema = z.object({
       image: z.string().describe("Input image path"),
       prompt: z.string().describe("Text prompt for inpainting"),
@@ -203,33 +358,73 @@ class FluxServer {
         .enum(["center", "ground"])
         .default("center")
         .describe("Position of the mask"),
+      // Add output_path and specific return_format
+      output_path: z
+        .string()
+        .optional()
+        .describe("Absolute path to save the generated image file"),
+      return_format: z
+        .enum(["url", "base64"])
+        .optional()
+        .default("base64")
+        .describe(
+          "Return image as URL or base64 data string (ignored if output_path is set)"
+        ),
     });
     this.server.tool(
       "inpaint",
       inpaintSchema.shape,
       async (args: z.infer<typeof inpaintSchema>) => {
-        const cmdArgs = ["inpaint"];
+        const cmdArgs = [];
+        cmdArgs.push("inpaint"); // Add command *first*
+
+        if (args.output_path) {
+          cmdArgs.push("--output", args.output_path);
+        } else if (args.return_format === "base64") {
+          cmdArgs.push("--fetch-base64");
+        }
+
         cmdArgs.push("--image", args.image);
         cmdArgs.push("--prompt", args.prompt);
         if (args.mask_shape) cmdArgs.push("--mask-shape", args.mask_shape);
         if (args.position) cmdArgs.push("--position", args.position);
 
-        const result = (await this.runPythonCommand(cmdArgs)) as {
-          format: string;
-          data: string;
-        };
-        return {
-          content: [
-            {
-              type: "image",
-              mimeType: `image/${result.format}`,
-              data: result.data,
-            },
-          ], // Use image type
-        };
+        const result = await this.runPythonCommand(cmdArgs);
+        if (
+          typeof result === "object" &&
+          (result as { status: string }).status === "saved"
+        ) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Image saved to: ${(result as PythonSavedResult).path}`,
+              },
+            ],
+          };
+        } else if (
+          typeof result === "object" &&
+          (result as { format: string }).format
+        ) {
+          const base64Result = result as { format: string; data: string };
+          return {
+            content: [
+              {
+                type: "image",
+                mimeType: `image/${base64Result.format}`,
+                data: base64Result.data,
+              },
+            ],
+          };
+        } else if (typeof result === "string") {
+          return { content: [{ type: "text", text: `Image URL: ${result}` }] };
+        } else {
+          throw new Error("Unexpected result type from runPythonCommand");
+        }
       }
     );
 
+    // --- control ---
     const controlSchema = z.object({
       type: z
         .enum(["canny", "depth", "pose"])
@@ -238,31 +433,70 @@ class FluxServer {
       prompt: z.string().describe("Text prompt for generation"),
       steps: z.number().default(50).describe("Number of inference steps"),
       guidance: z.number().optional().describe("Guidance scale"),
+      // Add output_path and specific return_format
+      output_path: z
+        .string()
+        .optional()
+        .describe("Absolute path to save the generated image file"),
+      return_format: z
+        .enum(["url", "base64"])
+        .optional()
+        .default("base64")
+        .describe(
+          "Return image as URL or base64 data string (ignored if output_path is set)"
+        ),
     });
     this.server.tool(
       "control",
       controlSchema.shape,
       async (args: z.infer<typeof controlSchema>) => {
-        const cmdArgs = ["control"];
+        const cmdArgs = [];
+        cmdArgs.push("control"); // Add command *first*
+
+        if (args.output_path) {
+          cmdArgs.push("--output", args.output_path);
+        } else if (args.return_format === "base64") {
+          cmdArgs.push("--fetch-base64");
+        }
+
         cmdArgs.push("--type", args.type);
         cmdArgs.push("--image", args.image);
         cmdArgs.push("--prompt", args.prompt);
         if (args.steps) cmdArgs.push("--steps", args.steps.toString());
         if (args.guidance) cmdArgs.push("--guidance", args.guidance.toString());
 
-        const result = (await this.runPythonCommand(cmdArgs)) as {
-          format: string;
-          data: string;
-        };
-        return {
-          content: [
-            {
-              type: "image",
-              mimeType: `image/${result.format}`,
-              data: result.data,
-            },
-          ], // Use image type
-        };
+        const result = await this.runPythonCommand(cmdArgs);
+        if (
+          typeof result === "object" &&
+          (result as { status: string }).status === "saved"
+        ) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Image saved to: ${(result as PythonSavedResult).path}`,
+              },
+            ],
+          };
+        } else if (
+          typeof result === "object" &&
+          (result as { format: string }).format
+        ) {
+          const base64Result = result as { format: string; data: string };
+          return {
+            content: [
+              {
+                type: "image",
+                mimeType: `image/${base64Result.format}`,
+                data: base64Result.data,
+              },
+            ],
+          };
+        } else if (typeof result === "string") {
+          return { content: [{ type: "text", text: `Image URL: ${result}` }] };
+        } else {
+          throw new Error("Unexpected result type from runPythonCommand");
+        }
       }
     );
   }
